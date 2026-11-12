@@ -1,0 +1,49 @@
+{
+  "day": "2026-11-10",
+  "known_at": "2026-11-12T00:00:00Z",
+  "units": [
+    {
+      "id": "case-a",
+      "candidates": [
+        {
+          "id": "a-nursing",
+          "bed": "unconfirmed-a",
+          "facility": "f1",
+          "state": "nursing"
+        },
+        {
+          "id": "a-general",
+          "bed": "unconfirmed-a",
+          "facility": "f1",
+          "state": "general"
+        }
+      ]
+    },
+    {
+      "id": "case-b",
+      "candidates": [
+        {
+          "id": "b-nursing",
+          "bed": "unconfirmed-b",
+          "facility": "f1",
+          "state": "nursing"
+        },
+        {
+          "id": "b-absent",
+          "bed": "unconfirmed-b",
+          "facility": "f1",
+          "state": "absent"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "kind": "excludes",
+      "candidates": [
+        "a-nursing",
+        "b-nursing"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "regions": [
+    {
+      "id": "county",
+      "parent": null,
+      "name": "合成县"
+    },
+    {
+      "id": "town",
+      "parent": "county",
+      "name": "合成镇"
+    },
+    {
+      "id": "village",
+      "parent": "county",
+      "name": "合成村"
+    }
+  ],
+  "facilities": [
+    {
+      "id": "f1",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "name": "合成机构 f1",
+      "region": "town",
+      "open": "2026-01-01",
+      "close": "2027-01-01",
+      "ownership": "public",
+      "licensed": true,
+      "license_limit": 10
+    },
+    {
+      "id": "f2",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "name": "合成机构 f2",
+      "region": "village",
+      "open": "2026-01-01",
+      "close": "2027-01-01",
+      "ownership": "private",
+      "licensed": true,
+      "license_limit": 10
+    }
+  ],
+  "events": [
+    {
+      "id": "commission-1",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "bed": "bed-1",
+      "facility": "f1",
+      "effective_at": "2026-10-01T00:00:00Z",
+      "action": "commission",
+      "category": "general",
+      "expected": null,
+      "cancelled": false
+    },
+    {
+      "id": "commission-2",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "bed": "bed-2",
+      "facility": "f1",
+      "effective_at": "2026-10-01T00:00:00Z",
+      "action": "commission",
+      "category": "nursing",
+      "expected": null,
+      "cancelled": false
+    },
+    {
+      "id": "commission-3",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "bed": "bed-3",
+      "facility": "f1",
+      "effective_at": "2026-10-01T00:00:00Z",
+      "action": "commission",
+      "category": "general",
+      "expected": null,
+      "cancelled": false
+    },
+    {
+      "id": "commission-4",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "bed": "bed-4",
+      "facility": "f2",
+      "effective_at": "2026-10-01T00:00:00Z",
+      "action": "commission",
+      "category": "nursing",
+      "expected": null,
+      "cancelled": false
+    },
+    {
+      "id": "commission-5",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "bed": "bed-5",
+      "facility": "f2",
+      "effective_at": "2026-10-01T00:00:00Z",
+      "action": "commission",
+      "category": "rehabilitation",
+      "expected": null,
+      "cancelled": false
+    },
+    {
+      "id": "commission-6",
+      "revision": 1,
+      "recorded_at": "2026-10-01T00:00:00Z",
+      "bed": "bed-6",
+      "facility": "f2",
+      "effective_at": "2026-11-03T00:00:00Z",
+      "action": "commission",
+      "category": "general",
+      "expected": null,
+      "cancelled": false
+    },
+    {
+      "id": "convert-1",
+      "revision": 1,
+      "recorded_at": "2026-11-01T09:00:00Z",
+      "bed": "bed-1",
+      "facility": "f1",
+      "effective_at": "2026-11-01T08:00:00Z",
+      "action": "reclassify",
+      "category": "nursing",
+      "expected": "general",
+      "cancelled": false
+    },
+    {
+      "id": "convert-1",
+      "revision": 2,
+      "recorded_at": "2026-11-05T00:00:00Z",
+      "bed": "bed-1",
+      "facility": "f1",
+      "effective_at": "2026-11-01T08:00:00Z",
+      "action": "reclassify",
+      "category": "rehabilitation",
+      "expected": "general",
+      "cancelled": false
+    },
+    {
+      "id": "retire-2",
+      "revision": 1,
+      "recorded_at": "2026-11-04T01:00:00Z",
+      "bed": "bed-2",
+      "facility": "f1",
+      "effective_at": "2026-11-04T00:00:00Z",
+      "action": "retire",
+      "category": null,
+      "expected": "nursing",
+      "cancelled": false
+    }
+  ]
+}
