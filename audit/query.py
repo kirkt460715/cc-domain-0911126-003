@@ -2,6 +2,7 @@ import base64
 import json
 from registry.values import canonical, fingerprint, integer, identifier
 from bed_events.replay import verify_snapshot
+from audit.disputes import analyze, compare_narrowing, evidence_conflicts, parse_worksheet
 
 
 FILTERS = {'bed', 'facility', 'category', 'region', 'ownership'}
@@ -68,6 +69,38 @@ def partition_summary(current):
         'excluded': len(current['excluded']),
         'traced_beds': len(current['traces']),
         'partition_total': sum(len(current[key]) for key in ('beds', 'retired', 'quarantined', 'excluded')),
+    }
+
+
+def dispute_interval(catalog, current, definition, worksheet, pin=None, limits=None):
+    """Evidence-support interval for curated disputed units.
+
+    The worksheet is a hypothesis sheet, never a source of official events.
+    """
+    return analyze(catalog, current, worksheet, definition, pin, limits)
+
+
+def dispute_narrowing(baseline, narrowed, definition=None):
+    """Measure how far a pinned follow-up narrows the retained baseline."""
+    if definition is not None and definition.digest != baseline.get('definition_digest'):
+        raise ValueError('narrowing comparison uses a different indicator definition')
+    return compare_narrowing(baseline, narrowed)
+
+
+def dispute_summary(catalog, current, definition, worksheet):
+    """Conflict-first listing so unresolved identities are never dropped."""
+    verify_snapshot(current)
+    parsed = parse_worksheet(worksheet)
+    conflicts = evidence_conflicts(catalog, current, parsed)
+    return {
+        'snapshot_digest': current['snapshot_digest'],
+        'worksheet_digest': parsed['digest'],
+        'definition_digest': definition.digest,
+        'unit_count': len(parsed['units']),
+        'candidate_count': sum(len(unit['candidates']) for unit in parsed['units']),
+        'relation_count': len(parsed['relations']),
+        'conflicts': conflicts,
+        'status': 'evidence_conflict' if conflicts else 'ready',
     }
 
 

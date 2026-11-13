@@ -24,6 +24,9 @@ from audit.triage import Triage, issues
 from bed_audit import demo, parser, dispatch
 
 
+WORKBOOK = Path(__file__).resolve().parents[1] / 'fixtures' / 'disputed_units.json'
+
+
 class DeliveryProtocols(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -205,6 +208,52 @@ class DeliveryProtocols(unittest.TestCase):
             service.handle('POST', '/missing', {})
         self.assertTrue(service.handle('GET', '/health', {})['ok'])
 
+    def test_dispute_interval_service_and_narrowing_cli(self):
+        service = Service(self.path)
+        service.handle('POST', '/ingest', {'request_key': 'import', 'document': data()})
+        service.handle('POST', '/snapshot', {'id': 'current', 'day': '2026-11-10', 'known_at': '2026-11-12T00:00:00Z'})
+        worksheet = json.loads(WORKBOOK.read_text())
+        summary = service.handle('POST', '/disputes/summary', {'snapshot': 'current', 'worksheet': worksheet})
+        self.assertEqual(summary['status'], 'ready')
+        self.assertEqual(summary['unit_count'], 2)
+        interval = service.handle('POST', '/disputes/interval', {'snapshot': 'current', 'worksheet': worksheet})
+        self.assertEqual(interval['status'], 'analyzed')
+        self.assertEqual(interval['feasible_completions'], 3)
+        self.assertTrue(interval['witnesses'])
+        self.assertTrue(all(digest in interval['witnesses'] for row in interval['regions'] for key in ('min_witness', 'max_witness') for digest in [row['ratio'][key]] if digest))
+        narrowed = service.handle('POST', '/disputes/interval', {'snapshot': 'current', 'worksheet': worksheet, 'pin': {'case-a': 'a-nursing'}})
+        delta = service.handle('POST', '/disputes/narrowing', {'snapshot': 'current', 'worksheet': worksheet, 'baseline': interval, 'pin': {'case-a': 'a-nursing'}})
+        self.assertEqual(delta['baseline_report_digest'], interval['report_digest'])
+        self.assertEqual(delta['narrowed_report_digest'], narrowed['report_digest'])
+        self.assertFalse(delta['mutates_baseline'])
+        with tempfile.TemporaryDirectory() as directory:
+            baseline_path = Path(directory) / 'baseline.json'
+            baseline_path.write_text(canonical(interval))
+            worksheet_path = Path(directory) / 'worksheet.json'
+            worksheet_path.write_text(canonical(worksheet))
+            args = parser().parse_args([
+                'dispute-narrowing',
+                '--fixture', str(FIXTURE),
+                '--worksheet', str(worksheet_path),
+                '--baseline', str(baseline_path),
+                '--day', '2026-11-10',
+                '--known-at', '2026-11-12T00:00:00Z',
+                '--pin', '{"case-a":"a-nursing"}',
+            ])
+            value = dispatch(args)
+            self.assertEqual(value['narrowed_regions'], 2)
+        with Ledger(self.path) as ledger:
+            before = ledger.get_snapshot('current')['result']
+        self.assertEqual(before['snapshot_digest'], interval['snapshot_digest'])
+        self.assertEqual(len(before['beds']), 5)
+
+    def test_cli_demo_includes_dispute_interval_when_worksheet_supplied(self):
+        demo_value = demo(FIXTURE, WORKBOOK)
+        self.assertTrue(demo_value['evidence']['verified'])
+        self.assertEqual(demo_value['disputes']['status'], 'analyzed')
+        self.assertEqual(demo_value['disputes']['feasible_completions'], 3)
+        self.assertTrue(demo_value['disputes']['evidence_verified'])
+
     def test_cli_demo_and_replay_commands_use_real_business_data(self):
         result = demo(FIXTURE)
         self.assertEqual(result['revision_impact'], 1)
@@ -232,6 +281,24 @@ class HTTPProtocols(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=5)
         self.temporary.cleanup()
+
+    def test_http_dispute_interval_and_conflict_status(self):
+        self.request('POST', '/ingest', {'request_key': 'import', 'document': data()})
+        self.request('POST', '/snapshot', {'id': 'current', 'day': '2026-11-10', 'known_at': '2026-11-12T00:00:00Z'})
+        worksheet = json.loads(WORKBOOK.read_text())
+        status, value = self.request('POST', '/disputes/interval', {'snapshot': 'current', 'worksheet': worksheet})
+        self.assertEqual(status, 200)
+        self.assertEqual(value['status'], 'analyzed')
+        self.assertEqual(value['feasible_completions'], 3)
+        status, value = self.request('POST', '/disputes/summary', {'snapshot': 'current', 'worksheet': worksheet})
+        self.assertEqual(status, 200)
+        self.assertEqual(value['status'], 'ready')
+        status, value = self.request('POST', '/disputes/interval', {'snapshot': 'missing', 'worksheet': worksheet})
+        self.assertEqual(status, 404)
+        status, value = self.request('POST', '/disputes/interval', {'worksheet': worksheet})
+        self.assertEqual(status, 400)
+        status, value = self.request('POST', '/disputes/interval', {'snapshot': 'current'})
+        self.assertEqual(status, 400)
 
     def request(self, method, path, body=None, headers=None):
         connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=5)

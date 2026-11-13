@@ -6,7 +6,7 @@ from indicators.definitions import nursing_definition, parse_definition
 from indicators.compute import compute
 from indicators.disclosure import protect_regions
 from indicators.portfolio import facility_contributions, conversion_plan
-from audit.query import beds, facility_drilldown
+from audit.query import beds, facility_drilldown, dispute_interval, dispute_narrowing, dispute_summary
 from audit.quality import quality_report, revision_inventory
 from audit.revisions import explain_bed, revision_impact
 from audit.claims import reconcile_claims
@@ -144,7 +144,7 @@ class Service:
                 catalog, events = parse_package(after['document'])
                 definition = parse_definition(data['definition']) if 'definition' in data else nursing_definition()
                 return attribution_bridge(catalog, before['result'], after['result'], definition)
-            allowed = {'/indicator', '/beds', '/quality', '/explain', '/claims', '/facility', '/contributions', '/conversion', '/inventory', '/revision-impact'}
+            allowed = {'/indicator', '/beds', '/quality', '/explain', '/claims', '/facility', '/contributions', '/conversion', '/inventory', '/revision-impact', '/disputes/interval', '/disputes/narrowing', '/disputes/summary'}
             if path not in allowed:
                 raise LookupError('unknown endpoint')
             document = ledger.document()
@@ -168,6 +168,19 @@ class Service:
             stored = ledger.get_snapshot(current_id)
             current = stored['result']
             catalog, events = parse_package(stored['document'])
+            if path == '/disputes/summary':
+                object_fields(data, ('snapshot', 'worksheet'), ('definition',))
+                definition = parse_definition(data['definition']) if 'definition' in data else nursing_definition()
+                return dispute_summary(catalog, current, definition, data['worksheet'])
+            if path == '/disputes/interval':
+                object_fields(data, ('snapshot', 'worksheet'), ('definition', 'pin', 'limits'))
+                definition = parse_definition(data['definition']) if 'definition' in data else nursing_definition()
+                return dispute_interval(catalog, current, definition, data['worksheet'], data.get('pin'), data.get('limits'))
+            if path == '/disputes/narrowing':
+                object_fields(data, ('snapshot', 'worksheet', 'baseline'), ('definition', 'pin', 'limits'))
+                definition = parse_definition(data['definition']) if 'definition' in data else nursing_definition()
+                narrowed = dispute_interval(catalog, current, definition, data['worksheet'], data.get('pin'), data.get('limits'))
+                return dispute_narrowing(data['baseline'], narrowed, definition)
             if path == '/beds':
                 object_fields(data, ('snapshot',), ('filters', 'columns', 'limit', 'cursor'))
                 return beds(current, data.get('filters'), data.get('columns'), data.get('limit', 100), data.get('cursor'))

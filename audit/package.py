@@ -13,6 +13,7 @@ from indicators.compute import compute
 from indicators.definitions import parse_definition
 from indicators.disclosure import protect_regions, validate_protection
 from audit.quality import quality_report, check_additivity, trace_coverage
+from audit.query import dispute_summary, dispute_interval
 
 
 def table_csv(rows):
@@ -27,7 +28,7 @@ def table_csv(rows):
     return stream.getvalue()
 
 
-def payload(document, current, definition):
+def payload(document, current, definition, worksheet=None):
     catalog, events = parse_package(document)
     replay = snapshot(catalog, events, current['day'], current['known_at'])
     if replay != current:
@@ -46,19 +47,24 @@ def payload(document, current, definition):
         'regional-indicator.csv': table_csv(indicator['rows']),
         'consistency.json': canonical({'additivity': check_additivity(catalog, indicator), 'trace_coverage': trace_coverage(current)}),
     }
+    if worksheet is not None:
+        contents['dispute-worksheet.json'] = canonical(worksheet)
+        contents['dispute-summary.json'] = canonical(dispute_summary(catalog, current, definition, worksheet))
+        contents['dispute-interval.json'] = canonical(dispute_interval(catalog, current, definition, worksheet))
     manifest = {
         'version': 1,
         'access': 'restricted_audit_evidence_contains_asset_identifiers',
         'snapshot_digest': current['snapshot_digest'],
         'definition_digest': definition.digest,
+        'disputes_included': worksheet is not None,
         'files': {name: hashlib.sha256(content.encode('utf-8')).hexdigest() for name, content in sorted(contents.items())},
     }
     contents['manifest.json'] = canonical(manifest)
     return contents
 
 
-def write_package(document, current, definition, directory):
-    contents = payload(document, current, definition)
+def write_package(document, current, definition, directory, worksheet=None):
+    contents = payload(document, current, definition, worksheet)
     target = Path(directory)
     if target.exists() or target.is_symlink():
         raise FileExistsError(target)
@@ -101,7 +107,10 @@ def verify_package(directory):
     document = json.loads((root / 'source.json').read_text(encoding='utf-8'))
     current = json.loads((root / 'snapshot.json').read_text(encoding='utf-8'))
     definition = parse_definition(json.loads((root / 'definition.json').read_text(encoding='utf-8')))
-    expected = payload(document, current, definition)
+    worksheet = json.loads((root / 'dispute-worksheet.json').read_text(encoding='utf-8')) if (root / 'dispute-worksheet.json').exists() else None
+    if manifest.get('disputes_included', False) != (worksheet is not None):
+        raise ValueError('manifest dispute flag does not match package contents')
+    expected = payload(document, current, definition, worksheet)
     if set(expected) != names:
         raise ValueError('unexpected audit package schema')
     for name, content in expected.items():

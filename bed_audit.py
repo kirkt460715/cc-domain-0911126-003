@@ -20,7 +20,7 @@ from audit.revisions import revision_impact, explain_bed, compare_snapshots
 from audit.claims import reconcile_claims, verify_reported_ratios
 from audit.package import write_package, verify_package
 from audit.recovery import backup, restore
-from audit.query import beds, facility_drilldown, partition_summary
+from audit.query import beds, facility_drilldown, partition_summary, dispute_interval, dispute_narrowing, dispute_summary
 from audit.jobs import SnapshotQueue
 from indicators.registry import Definitions
 from audit.provenance import lineage_for_bed
@@ -37,12 +37,12 @@ def load(path):
     return json.loads(target.read_text(encoding='utf-8'))
 
 
-def report(document, day, known_at, definition=None):
+def report(document, day, known_at, definition=None, worksheet=None, pin=None, limits=None):
     catalog, events = parse_package(document)
     definition = definition or nursing_definition()
     current = snapshot(catalog, events, day, known_at)
     indicator = compute(catalog, current, definition)
-    return {
+    body = {
         'snapshot': current,
         'indicator': indicator,
         'public_indicator': protect_regions(catalog, indicator),
@@ -51,15 +51,24 @@ def report(document, day, known_at, definition=None):
         'trace_coverage': trace_coverage(current),
         'partitions': partition_summary(current),
     }
+    if worksheet is not None:
+        body['dispute_summary'] = dispute_summary(catalog, current, definition, worksheet)
+        body['dispute_interval'] = dispute_interval(catalog, current, definition, worksheet, pin, limits)
+    return body
 
 
-def demo(fixture):
+def demo(fixture, worksheet=None):
     document = load(fixture)
     catalog, events = parse_package(document)
     definition = nursing_definition()
     early = '2026-11-02T00:00:00Z'
     latest = '2026-11-10T00:00:00Z'
     day = '2026-11-01'
+    disputes = None
+    dispute_day = day
+    if worksheet:
+        packed = load(worksheet)
+        dispute_day, dispute_known = packed['day'], packed['known_at']
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         with Ledger(root / 'registry.sqlite') as ledger:
@@ -69,8 +78,12 @@ def demo(fixture):
             prior = ledger.create_snapshot('prior', day, early)
             current = ledger.create_snapshot('current', day, latest)
             published = ledger.publish('current-release', 'current')
+            scope = ledger.create_snapshot('disputes', dispute_day, dispute_known) if worksheet else None
             evidence = write_package(document, current['result'], definition, root / 'audit')
             verify_package(root / 'audit')
+            if worksheet:
+                dispute_evidence = write_package(document, scope['result'], definition, root / 'dispute-audit', packed)
+                disputes = dispute_interval(catalog, scope['result'], definition, packed)
             write_directory(document, root / 'tables')
             if read_directory(root / 'tables') != document:
                 raise AssertionError('CSV roundtrip changed event package')
@@ -91,6 +104,12 @@ def demo(fixture):
                 'job_state': job['state'],
                 'ledger': ledger.audit(),
                 'restored': restored['audit'],
+                'disputes': None if disputes is None else {
+                    'status': disputes['status'],
+                    'evidence_verified': dispute_evidence['verified'],
+                    'feasible_completions': disputes['feasible_completions'],
+                    'regions': [{key: row[key] for key in ('region', 'conclusion', 'ratio', 'zero_denominator')} for row in disputes['regions']],
+                },
             }
 
 
@@ -100,12 +119,17 @@ def parser():
     sub = result.add_subparsers(dest='command', required=True)
     command = sub.add_parser('demo')
     command.add_argument('--fixture', required=True)
+    command.add_argument('--worksheet')
     for name in ('report', 'quality', 'inventory', 'exposure', 'period', 'daily', 'revision-impact', 'explain', 'conversion', 'stock-bridge', 'capacity-series'):
         command = sub.add_parser(name)
         command.add_argument('--fixture', required=True)
         command.add_argument('--day', default='2026-11-01')
         command.add_argument('--known-at', default='2026-11-10T00:00:00Z')
         command.add_argument('--definition')
+        if name == 'report':
+            command.add_argument('--worksheet')
+            command.add_argument('--pin', default='{}')
+            command.add_argument('--limits', default='{}')
         if name in ('period', 'daily', 'exposure', 'stock-bridge', 'capacity-series'):
             command.add_argument('--start', required=True)
             command.add_argument('--end', required=True)
@@ -116,6 +140,23 @@ def parser():
         if name == 'conversion':
             command.add_argument('--region', required=True)
             command.add_argument('--budgets', required=True)
+    command = sub.add_parser('dispute-interval')
+    command.add_argument('--fixture', required=True)
+    command.add_argument('--worksheet', required=True)
+    command.add_argument('--day', default='2026-11-01')
+    command.add_argument('--known-at', default='2026-11-10T00:00:00Z')
+    command.add_argument('--definition')
+    command.add_argument('--pin', default='{}')
+    command.add_argument('--limits', default='{}')
+    command = sub.add_parser('dispute-narrowing')
+    command.add_argument('--fixture', required=True)
+    command.add_argument('--worksheet', required=True)
+    command.add_argument('--baseline', required=True)
+    command.add_argument('--day', default='2026-11-01')
+    command.add_argument('--known-at', default='2026-11-10T00:00:00Z')
+    command.add_argument('--definition')
+    command.add_argument('--pin', default='{}')
+    command.add_argument('--limits', default='{}')
     command = sub.add_parser('ingest')
     command.add_argument('--key', required=True)
     sources = command.add_mutually_exclusive_group(required=True)
@@ -194,9 +235,23 @@ def parser():
 def dispatch(args):
     command = args.command
     if command == 'demo':
-        return demo(args.fixture)
+        return demo(args.fixture, args.worksheet)
     if command == 'verify-package':
         return verify_package(args.directory)
+    if command == 'dispute-interval':
+        document = load(args.fixture)
+        catalog, events = parse_package(document)
+        definition = parse_definition(load(args.definition)) if args.definition else nursing_definition()
+        current = snapshot(catalog, events, args.day, args.known_at)
+        return dispute_interval(catalog, current, definition, load(args.worksheet), json.loads(args.pin), json.loads(args.limits))
+    if command == 'dispute-narrowing':
+        document = load(args.fixture)
+        catalog, events = parse_package(document)
+        definition = parse_definition(load(args.definition)) if args.definition else nursing_definition()
+        current = snapshot(catalog, events, args.day, args.known_at)
+        baseline = load(args.baseline)
+        narrowed = dispute_interval(catalog, current, definition, load(args.worksheet), json.loads(args.pin), json.loads(args.limits))
+        return dispute_narrowing(baseline, narrowed, definition)
     if command == 'restore':
         return restore(args.source, args.destination, args.digest)
     if command == 'serve':
@@ -211,7 +266,7 @@ def dispatch(args):
         catalog, events = parse_package(document)
         definition = parse_definition(load(args.definition)) if args.definition else nursing_definition()
         if command == 'report':
-            return report(document, args.day, args.known_at, definition)
+            return report(document, args.day, args.known_at, definition, load(args.worksheet) if args.worksheet else None, json.loads(args.pin), json.loads(args.limits))
         if command == 'quality':
             return quality_report(catalog, events, args.day, args.known_at)
         if command == 'inventory':
